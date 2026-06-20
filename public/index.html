@@ -1,19 +1,17 @@
 <!DOCTYPE html>
-<html lang="en-us">
+<html lang="ru">
 <head>
     <meta charset="utf-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <link rel="stylesheet" href="./style.css">
+    <link rel="shortcut icon" href="TemplateData/favicon.ico">
+    <link rel="stylesheet" href="TemplateData/style.css">
 
-    <!-- Yandex Games SDK -->
+    <!-- Яндекс SDK (для Яндекс.Игр) -->
     <script src="/sdk.js"></script>
 
     <style>
-        canvas:focus {
-            outline: none;
-        }
-
+        /* Сброс и адаптация */
         html, body {
             padding: 0;
             margin: 0;
@@ -21,26 +19,67 @@
             overscroll-behavior: none;
             -webkit-touch-callout: none;
             -webkit-user-select: none;
-            -khtml-user-select: none;
-            -moz-user-select: none;
-            -ms-user-select: none;
             user-select: none;
-            -webkit-tap-highlight-color: rgba(0,0,0,0);
             height: 100%;
+            width: 100%;
+            background: #000;
+        }
+
+        #unity-container {
+            position: absolute;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #000;
+        }
+
+        #unity-canvas {
+            background: #231F20;
+            object-fit: contain;
+        }
+
+        .unity-mobile #unity-canvas {
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        #loading-cover {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            z-index: 10;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #unity-loading-bar {
+            text-align: center;
+        }
+
+        .spinner {
+            /* Ваш спиннер, если нужен */
+        }
+
+        /* Для мобильных – скрываем полноэкранную кнопку и т.д. */
+        canvas:focus {
+            outline: none;
         }
     </style>
-
-    <!-- Additional head modules -->
-
 </head>
 <body class="dark">
 
     <div id="unity-container" class="unity-desktop">
         <canvas id="unity-canvas" tabindex="-1"></canvas>
     </div>
-    <div id="loading-cover" style="display:none;">
+
+    <div id="loading-cover">
         <div id="unity-loading-bar">
-            
             <div id="unity-progress-bar-empty" style="display: none;">
                 <div id="unity-progress-bar-full"></div>
             </div>
@@ -48,22 +87,32 @@
         </div>
     </div>
 
-    <!-- Additional body modules -->
-
+    <!-- ===== ПОДКЛЮЧЕНИЕ SOCKET.IO И КЛИЕНТСКОГО JS ===== -->
+    <!-- Если сервер на том же домене – достаточно /socket.io/socket.io.js -->
+    <!-- Для Яндекс.Игр сервер будет на другом домене – тогда нужно указать полный путь -->
+    <script src="YOUR_SERVER_URL/socket.io/socket.io.js"></script>
     <script>
-        const hideFullScreenButton = "";
+        // Переопределяем адрес сокета, если нужно (замените YOUR_SERVER_URL)
+        var socket = io('YOUR_SERVER_URL');
+    </script>
+    <script src="client.js"></script>
+
+    <!-- ===== СКРИПТ ЗАГРУЗКИ UNITY И ИНТЕГРАЦИИ С ЯНДЕКС SDK ===== -->
+    <script>
+        // Конфигурация билда
         const buildUrl = "Build";
-        const loaderUrl = buildUrl + "/public.loader.js";
+        const loaderUrl = buildUrl + "/public.loader.js"; // или "/10.loader.js" – смотрите ваш билд
         const config = {
-            dataUrl: buildUrl + "/public.data.br",
-            frameworkUrl: buildUrl + "/public.framework.js.br",
-            codeUrl: buildUrl + "/public.wasm.br",
-        streamingAssetsUrl: "StreamingAssets",
-            companyName: "DefaultCompany",
-            productName: "Delete! Trash project",
+            dataUrl: buildUrl + "/public.data",
+            frameworkUrl: buildUrl + "/public.framework.js",
+            codeUrl: buildUrl + "/public.wasm",
+            streamingAssetsUrl: "StreamingAssets",
+            companyName: "YourCompany",
+            productName: "YourGame",
             productVersion: "0.1.0"
         };
 
+        // DOM элементы
         const container = document.querySelector("#unity-container");
         const canvas = document.querySelector("#unity-canvas");
         const loadingCover = document.querySelector("#loading-cover");
@@ -71,583 +120,168 @@
         const progressBarFull = document.querySelector("#unity-progress-bar-full");
         const spinner = document.querySelector('.spinner');
 
-        const canFullscreen = (function () {
-            for (const key of [
-                'exitFullscreen',
-                'webkitExitFullscreen',
-                'webkitCancelFullScreen',
-                'mozCancelFullScreen',
-                'msExitFullscreen',
-            ]) {
-                if (key in document) {
-                    return true;
-                }
-            }
-            return false;
-        }());
+        // ===== ФУНКЦИИ МАСШТАБИРОВАНИЯ 16:9 (из index2) =====
+        function maintain16by9Aspect() {
+            const targetRatio = 16 / 9;
+            const containerWidth = container.clientWidth;
+            const containerHeight = container.clientHeight;
 
-        if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
-            container.className = "unity-mobile";
-            
+            let width = containerWidth;
+            let height = containerHeight;
+
+            const containerRatio = containerWidth / containerHeight;
+
+            if (containerRatio > targetRatio) {
+                height = containerHeight;
+                width = containerHeight * targetRatio;
+            } else {
+                width = containerWidth;
+                height = containerWidth / targetRatio;
+            }
+
+            canvas.style.width = `${width}px`;
+            canvas.style.height = `${height}px`;
+            canvas.style.position = 'absolute';
+            canvas.style.left = `${(containerWidth - width) / 2}px`;
+            canvas.style.top = `${(containerHeight - height) / 2}px`;
         }
 
-        // The background image when loading the game. When building a build, the code changes depending on the project settings.
-        
-        loadingCover.style.display = "";
+        function handleResize() {
+            maintain16by9Aspect();
+            if (ygGameInstance) {
+                ygGameInstance.SendMessage('YG2Instance', 'OnResize', `${canvas.width},${canvas.height}`);
+            }
+        }
 
-        let StartUnityInstance;
+        window.addEventListener('resize', handleResize);
+        window.addEventListener('orientationchange', handleResize);
+
+        // ===== ПЕРЕМЕННЫЕ ДЛЯ SDK =====
         let ygGameInstance = null;
         let ysdk = null;
+        let player = null;
         let initYSDK = false;
         let initGame = false;
-        let syncInit = false;
-        let isVisibility = true;
-        let isPausedGame = false;
-        const NO_DATA = 'no data';
+        let playerName = "Guest"; // запасное имя
 
-        document.addEventListener('contextmenu', event => event.preventDefault());
-        document.addEventListener('visibilitychange', () => SetVisibility(!document.hidden));
-        window.addEventListener('blur', () => SetVisibility(false));
-        window.addEventListener('focus', () => SetVisibility(true));
+        // ===== ФУНКЦИЯ ДЛЯ ОТПРАВКИ ИМЕНИ В UNITY =====
+        function SendPlayerNameToUnity(name) {
+            if (ygGameInstance) {
+                // Отправляем имя в NetworkManager (метод OnYandexSDKReady или SetPlayerName)
+                // Мы сделаем отдельный метод в NetworkManager, например, SetPlayerName
+                ygGameInstance.SendMessage('NetworkManager', 'SetPlayerName', name);
+                // Также можно сразу вызвать вход, если всё готово
+                ygGameInstance.SendMessage('NetworkManager', 'OnYandexSDKReady');
+            } else {
+                // Если Unity ещё не загружена – сохраняем имя и отправим позже
+                console.log("Unity ещё не загружена, сохраняем имя: " + name);
+                window._pendingPlayerName = name;
+            }
+        }
 
-        window.addEventListener('pointerdown', () => {
-            FocusGame();
-            SetVisibility(true);
-        });
-
-        window.addEventListener('resize', () => FocusGame());
-        document.addEventListener('fullscreenchange', () => FocusGame());
-
-        const oRequestPointerLock = Element.prototype.requestPointerLock;
-        Element.prototype.requestPointerLock = async function hkRequestPointerLock(...args) {
+        // ===== ИНИЦИАЛИЗАЦИЯ ЯНДЕКС SDK =====
+        async function InitYandexSDK() {
             try {
-                (args[0] ||= {}).unadjustedMovement = true;
-                await oRequestPointerLock.apply(this, args);
-            } catch (err) {
-                console.log(err);
-            }
-        };
+                ysdk = await YaGames.init();
+                ysdk.on('game_api_pause', () => {
+                    if (ygGameInstance) ygGameInstance.SendMessage('YG2Instance', 'SetPauseGame', 'true');
+                });
+                ysdk.on('game_api_resume', () => {
+                    if (ygGameInstance) ygGameInstance.SendMessage('YG2Instance', 'SetPauseGame', 'false');
+                });
 
-        function InstallBlurFocusBlocker() {
-            if (!('onblur' in document)) return;
-            if (window.blurFocusHandlersInstalled) return;
-
-            window.addEventListener('blur', function () {
-                let blockerButton = document.createElement('button');
-                blockerButton.style.position = 'fixed';
-                blockerButton.style.top = '0';
-                blockerButton.style.left = '0';
-                blockerButton.style.width = '100%';
-                blockerButton.style.height = '100%';
-                blockerButton.style.zIndex = '9999';
-                blockerButton.style.backgroundColor = 'rgba(0, 0, 0, 0)';
-                blockerButton.style.border = 'none';
-                blockerButton.style.cursor = 'default';
-
-                document.body.appendChild(blockerButton);
-
-                function removeBlocker() {
-                    if (blockerButton && blockerButton.parentNode) {
-                        blockerButton.parentNode.removeChild(blockerButton);
-                    }
-                    window.removeEventListener('focus', removeBlocker);
+                // Получаем игрока
+                player = await ysdk.getPlayer();
+                if (player && player.isAuthorized()) {
+                    playerName = player.getName() || "Guest";
+                    console.log("Яндекс авторизация: имя = " + playerName);
+                } else {
+                    console.log("Игрок не авторизован, используем Guest");
+                    playerName = "Guest";
                 }
 
-                window.addEventListener('focus', removeBlocker);
-            });
+                // Отправляем имя в Unity (если уже загружена)
+                SendPlayerNameToUnity(playerName);
 
-            window.blurFocusHandlersInstalled = true;
-        }
+                // Также можно загрузить облачные сохранения, если нужно
+                // ...
 
-        function FocusGame(checkingPauseStatus = true) {
-            if (!canvas) return;
+                initYSDK = true;
+                if (ygGameInstance) ygGameInstance.SendMessage('YG2Instance', 'InitSDKComplete');
 
-            requestAnimationFrame(() => {
-                if (checkingPauseStatus && isPausedGame) return;
-
-                const active = document.activeElement;
-                if (active && (active.tagName === 'INPUT' ||
-                    active.tagName === 'TEXTAREA' ||
-                    active.isContentEditable
-                )) {
-                    return;
-                }
-
-                canvas.focus({ preventScroll: true });
-            });
-        }
-
-        function SetVisibility(visibility) {
-            if (ysdk !== null && initGame === true && isVisibility !== visibility) {
-                isVisibility = visibility;
-                if (!visibility) {
-                    YG2Instance('SetFocusWindowGame', 'false');
-                }
-                else {
-                    YG2Instance('SetFocusWindowGame', 'true');
-                }
+            } catch (e) {
+                console.error('Ошибка инициализации Яндекс SDK:', e);
+                // Если SDK не доступен (не Яндекс.Игры), используем fallback
+                playerName = "Guest";
+                SendPlayerNameToUnity(playerName);
             }
         }
 
-        const PauseCallback = () => {
-            isPausedGame = true;
-            YG2Instance('SetPauseGame', 'true');
-        };
+        // ===== ЗАГРУЗКА UNITY =====
+        function StartUnity() {
+            maintain16by9Aspect();
+            loadingCover.style.display = "";
 
-        const ResumeCallback = () => {
-            isPausedGame = false;
-            YG2Instance('SetPauseGame', 'false');
-            FocusGame(false);
-        };
-
-        const script = document.createElement("script");
-        script.src = loaderUrl;
-        script.onload = () => {
-            StartUnityInstance = function () {
+            const script = document.createElement("script");
+            script.src = loaderUrl;
+            script.onload = () => {
                 createUnityInstance(canvas, config, (progress) => {
                     spinner.style.display = "none";
                     progressBarEmpty.style.display = "";
-                    const adjustedProgress = Math.max(progress, 0.05);
-                    progressBarFull.style.width = `${100 * adjustedProgress}%`;
+                    progressBarFull.style.width = `${100 * Math.max(progress, 0.05)}%`;
                 }).then((unityInstance) => {
                     ygGameInstance = unityInstance;
-                    loadingCover.style.background = "";
                     loadingCover.style.display = "none";
-                    FocusGame();
-                    // Fill Background [Build Modify]
+
+                    // Если имя уже было получено до загрузки – отправляем
+                    if (window._pendingPlayerName) {
+                        ygGameInstance.SendMessage('NetworkManager', 'SetPlayerName', window._pendingPlayerName);
+                        ygGameInstance.SendMessage('NetworkManager', 'OnYandexSDKReady');
+                        window._pendingPlayerName = null;
+                    }
+
+                    // Если SDK уже инициализирован, но имя не отправлено – отправляем
+                    if (initYSDK && playerName) {
+                        ygGameInstance.SendMessage('NetworkManager', 'SetPlayerName', playerName);
+                        ygGameInstance.SendMessage('NetworkManager', 'OnYandexSDKReady');
+                    }
+
+                    // Передаём размеры
+                    setTimeout(() => {
+                        maintain16by9Aspect();
+                        unityInstance.SendMessage('YG2Instance', 'OnWebGLResize', `${canvas.width},${canvas.height}`);
+                    }, 100);
+
+                    // Фокусируем canvas
+                    canvas.focus({ preventScroll: true });
                 }).catch((message) => {
                     console.error(message);
                 });
             };
-            
-            InstallBlurFocusBlocker();
-            InitYSDK();
-            
-            if (IsLocalHost() || syncInit)
-                StartUnityInstance_IfUnloaded();
-        };
-
-        function StartUnityInstance_IfUnloaded() {
-            if (spinner.style.display !== "none")
-                StartUnityInstance();
+            document.body.appendChild(script);
         }
 
-        function IsLocalHost() {
-            try {
-                if (window.top !== window) {
-                    return false;
-                }
-
-                const host = window.location.hostname;
-                if (host === "localhost" || host === "127.0.0.1" || host.endsWith(".local")) {
-                    LogStyledMessage("Local Host");
-                    return true;
-                }
-            } 
-            catch (error) {
-                console.error("Error checking the local host:", error);
-                return false;
-            }
-        }
-
-        function YG2Instance(method) {
-            if (ygGameInstance == null)
-                return;
-
-            if (!initGame) {
-                setTimeout(function () {
-                    if (ygGameInstance)
-                        ygGameInstance.SendMessage('YG2Instance', method);
-                }, 100);
-            }
-            else {
-                ygGameInstance.SendMessage('YG2Instance', method);
-            }
-                
-        }
-        function YG2Instance(method, arg) {
-            if (ygGameInstance == null)
-                return;
-
-            if (!initGame) {
-                setTimeout(function () {
-                    ygGameInstance.SendMessage('YG2Instance', method, arg);
-                }, 100);
-            }
-            else {
-                ygGameInstance.SendMessage('YG2Instance', method, arg);
-            }
-        }
-
-        function LogStyledMessage(message, style = 'color: #FFDF73; background-color: #454545') {
-            console.log('%c' + message, style);
-        }
-
-        async function InitYSDK() {
-            try {
-                if (IsLocalHost()) return;
-
-                ysdk = await YaGames.init();
-                ysdk.on('game_api_pause', PauseCallback);
-                ysdk.on('game_api_resume', ResumeCallback);
-
-                // Additional init0 modules
-
-                // Additional init1 modules
-
-                // Additional init2 modules
-await InitPlayer();
-LogStyledMessage('Init Authorization ysdk');
-
-
-                // Additional init modules
-await LoadCloud();
-LogStyledMessage('Init Storage ysdk');
-
-await InitPayments();
-LogStyledMessage('Init Payments ysdk');
-
-
-                initYSDK = true;
-                if (ygGameInstance != null)
-                    ygGameInstance.SendMessage('YG2Instance', 'InitSDKComplete');
-
-                LogStyledMessage('Init YandexSDK Success');
-
-            } catch (e) {
-                console.error('CRASH Initialization SDK: ', e);
-            }
-
-            if (!IsLocalHost() && !syncInit)
-                StartUnityInstance_IfUnloaded();
-        }
-
-        function InitGame() {
-            initGame = true;
-
-            setTimeout(function () {
-                if (isPausedGame == true)
-                    YG2Instance('SetPauseGame', 'true');
-            }, 100);
-
-            // Additional start modules
-        }
-
-        // Additional script modules
-LogStyledMessage('[PluginYG2 v2.0092] [Build: 1] [Platform: YandexGames]');
-
-var cloudSaves = NO_DATA;
-
-function SaveCloud(jsonData, flush) {
-    if (player == null) {
-        console.error('CRASH Save Cloud: ', 'Didnt have time to load');
-        return;
-    }
-    try {
-        player.setData({
-            saves: [jsonData],
-        }, flush);
-    } catch (e) {
-        console.error('CRASH Save Cloud: ', e.message);
-    }
-}
-
-function LoadCloud() {
-    return new Promise((resolve) => {
-        if (ysdk == null) {
-            Final(NO_DATA);
-            return;
-        }
-        try {
-            player.getData(["saves"]).then(data => {
-                if (data.saves) {
-                    Final(JSON.stringify(data.saves));
-                } else {
-                    Final(NO_DATA);
-                }
-            }).catch(() => {
-                console.error('Load Cloud Error!');
-                Final(NO_DATA);
-            });
-        }
-        catch (e) {
-            console.error('CRASH Load saves Cloud: ', e.message);
-            Final(NO_DATA);
-        }
-
-        function Final(res) {
-            cloudSaves = res;
-            YG2Instance('SetLoadSaves', res);
-            resolve(res);
-        }
-    });
-}
-
-
-function RewardedAdvShow(id) {
-    try {
-        ysdk.adv.showRewardedVideo(
-            {
-                callbacks:
-                {
-                    onOpen: () => {
-                        LogStyledMessage('Opened Rewarded Adv');
-                        YG2Instance('OpenRewardedAdv');
-                    },
-                    onClose: () => {
-                        LogStyledMessage('Closed Rewarded Adv');
-                        YG2Instance('CloseRewardedAdv');
-                        FocusGame();
-                    },
-                    onRewarded: () => {
-                        YG2Instance('RewardAdv', id);
-                    },
-                    onError: (err) => {
-                        console.error('Error Rewarded Adv', err);
-                        YG2Instance('ErrorRewardedAdv');
-                    }
-                }
-            });
-    } catch (err) {
-        console.error('CRASH Rewarded Adv Show: ', err.message);
-    }
-}
-
-var paymentsData = NO_DATA;
-let payments = null;
-
-function InitPayments(sendback) {
-    return new Promise((resolve) => {
-        try {
-            if (ysdk == null) {
-                Final(NO_DATA);
-                return;
-            }
-
-            ysdk.getPayments().then(_payments => {
-                payments = _payments;
-
-                payments.getCatalog()
-                    .then(products => {
-                        let productID = [];
-                        let title = [];
-                        let description = [];
-                        let imageURI = [];
-                        let price = [];
-                        let priceValue = [];
-                        let priceCurrencyCode = [];
-                        let currencyImageURL = [];
-                        let consumed = [];
-
-                        payments.getPurchases().then(purchases => {
-                            for (let i = 0; i < products.length; i++) {
-                                productID[i] = products[i].id;
-                                title[i] = products[i].title;
-                                description[i] = products[i].description;
-                                imageURI[i] = products[i].imageURI;
-                                price[i] = products[i].price;
-                                priceValue[i] = products[i].priceValue;
-                                priceCurrencyCode[i] = products[i].priceCurrencyCode;
-                                currencyImageURL[i] = products[i].getPriceCurrencyImage("medium");
-
-                                consumed[i] = true;
-                                for (i2 = 0; i2 < purchases.length; i2++) {
-                                    if (purchases[i2].productID === productID[i]) {
-                                        consumed[i] = false;
-                                        break;
-                                    }
-                                }
-                            }
-
-                            let jsonPayments = {
-                                "id": productID,
-                                "title": title,
-                                "description": description,
-                                "imageURI": imageURI,
-                                "price": price,
-                                "priceValue": priceValue,
-                                "priceCurrencyCode": priceCurrencyCode,
-                                "currencyImageURL": currencyImageURL,
-                                "consumed": consumed,
-                                "language": ysdk.environment.i18n.lang
-                            };
-
-                            Final(JSON.stringify(jsonPayments));
-                        });
-                    });
-
-            }).catch(e => {
-                LogStyledMessage('Purchases are not available', e.message);
-                Final(NO_DATA);
-            })
-        } catch (e) {
-            console.error('CRASH Init Payments: ', e.message);
-            Final(NO_DATA);
-        }
-
-        function Final(res) {
-            paymentsData = res;
-            YG2Instance('PaymentsEntries', res);
-            resolve(res);
-        }
-    });
-}
-
-function BuyPayments(id) {
-    try {
-        if (payments != null) {
-            payments.purchase(id).then(() => {
-                LogStyledMessage('Purchase Success');
-                ConsumePurchase(id, true);
-                FocusGame();
-            }).catch(e => {
-                console.error('Purchase Failed', e.message);
-                YG2Instance('OnPurchaseFailed', id);
-                FocusGame();
-            })
-        }
-        else {
-            LogStyledMessage('Payments == null');
-            YG2Instance('OnPurchaseFailed', id);
-        }
-    } catch (e) {
-        console.error('CRASH Buy Payments: ', e.message);
-        YG2Instance('OnPurchaseFailed', id);
-        FocusGame();
-    }
-}
-
-function ConsumePurchase(id, onPurchaseSuccess) {
-    try {
-        if (payments != null) {
-            payments.getPurchases().then(purchases => {
-                for (i = 0; i < purchases.length; i++) {
-                    if (purchases[i].productID === id) {
-                        payments.consumePurchase(purchases[i].purchaseToken);
-
-                        if (onPurchaseSuccess)
-                            YG2Instance('OnPurchaseSuccess', id);
-                    }
-                }
-            });
-        }
-        else {
-            LogStyledMessage('Consume purchase: payments null');
-        }
-    } catch (e) {
-        console.error('CRASH Consume Purchase: ', e.message);
-    }
-}
-
-function ConsumePurchases(onPurchaseSuccess) {
-    try {
-        if (payments != null) {
-            payments.getPurchases().then(purchases => {
-                LogStyledMessage('Unprocessed purchases: ', purchases.length);
-                for (i = 0; i < purchases.length; i++) {
-                    payments.consumePurchase(purchases[i].purchaseToken);
-
-                    if (onPurchaseSuccess)
-                        YG2Instance('OnPurchaseSuccess', purchases[i].productID);
-                }
-            });
-        }
-        else {
-            LogStyledMessage('Consume purchases: payments null');
-        }
-    } catch (e) {
-        console.error('CRASH Consume purchases: ', e.message);
-    }
-}
-
-var playerData = NO_DATA;
-let player = null;
-
-async function InitPlayer() {
-    try {
-        if (!ysdk) {
-            return Final(NotAuthorized(false));
-        }
-
-        player = await ysdk.getPlayer();
-
-        if (!player || !player.isAuthorized()) {
-            return Final(NotAuthorized(true));
-        }
-
-        const authJson = {
-            playerAuth: "resolved",
-            playerName: player.getName(),
-            playerId: player.getUniqueID(),
-            playerPhoto: player.getPhoto('medium'),
-            payingStatus: player.getPayingStatus()
-        };
-
-        return Final(JSON.stringify(authJson));
-    } catch (e) {
-        console.error('CRASH InitPlayer:', e?.message ?? e);
-        player = null;
-        return Final(NotAuthorized(false));
-    }
-
-    function Final(res) {
-        playerData = res;
-        YG2Instance('SetAuth', res);
-        return res;
-    }
-}
-
-function NotAuthorized(hasPlayer = false) {
-    const authJson = {
-        playerAuth: "rejected",
-        playerName: "unauthorized",
-        playerId: hasPlayer && player ? player.getUniqueID() : "unauthorized",
-        playerPhoto: "no data",
-        payingStatus: "unknown"
-    };
-
-    return JSON.stringify(authJson);
-}
-
-async function OpenAuthDialog() {
-    if (!ysdk) {
-        LogStyledMessage('OpenAuthDialog: ysdk is null');
-        return;
-    }
-
-    try {
-        player = await ysdk.getPlayer();
-
-        if (player.isAuthorized()) {
-            await InitPlayer();
-            YG2Instance('LoggedIn');
-            return;
-        }
-
-        try {
-            await ysdk.auth.openAuthDialog();
-            player = await ysdk.getPlayer();
-
-            if (player.isAuthorized()) {
-                await InitPlayer();
-                YG2Instance('LoggedIn');
+        // ===== ЗАПУСК =====
+        window.onload = function () {
+            // Сначала инициализируем Яндекс SDK (если он доступен)
+            if (typeof YaGames !== 'undefined' && YaGames.init) {
+                InitYandexSDK();
             } else {
-                await InitPlayer();
-                LogStyledMessage('Authorization dialog closed, player is still unauthorized');
+                // Если SDK отсутствует (локальный запуск) – используем Guest
+                console.log("Яндекс SDK не обнаружен, используем Guest");
+                playerName = "Guest";
+                SendPlayerNameToUnity(playerName);
             }
-        } catch (e) {
-            await InitPlayer();
-            LogStyledMessage('Authorization canceled or failed:', e?.message ?? e);
-        }
-    } catch (e) {
-        player = null;
-        await InitPlayer();
-        LogStyledMessage('CRASH OpenAuthDialog / getPlayer:', e?.message ?? e);
-    }
-}
 
+            // Загружаем Unity (параллельно)
+            StartUnity();
+        };
 
-        document.body.appendChild(script);
+        // Дополнительная функция для получения имени из Unity (если понадобится)
+        window.GetYandexPlayerName = function () {
+            return playerName;
+        };
     </script>
+
 </body>
 </html>
