@@ -6,102 +6,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <link rel="shortcut icon" href="TemplateData/favicon.ico">
     <link rel="stylesheet" href="TemplateData/style.css">
-
-    <!-- Яндекс SDK (для Яндекс.Игр) -->
-    <script src="/sdk.js"></script>
-
     <style>
-        /* Сброс и адаптация */
-        html, body {
-            padding: 0;
-            margin: 0;
-            overflow: hidden;
-            overscroll-behavior: none;
-            -webkit-touch-callout: none;
-            -webkit-user-select: none;
-            user-select: none;
-            height: 100%;
-            width: 100%;
-            background: #000;
-        }
-
-        #unity-container {
-            position: absolute;
-            width: 100vw;
-            height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            background: #000;
-        }
-
-        #unity-canvas {
-            background: #231F20;
-            object-fit: contain;
-        }
-
-        .unity-mobile #unity-canvas {
-            width: 100% !important;
-            height: 100% !important;
-        }
-
-        #loading-cover {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: #000;
-            z-index: 10;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-
-        #unity-loading-bar {
-            text-align: center;
-        }
-
-        .spinner {
-            /* Ваш спиннер, если нужен */
-        }
-
-        /* Для мобильных – скрываем полноэкранную кнопку и т.д. */
-        canvas:focus {
-            outline: none;
-        }
+        /* адаптивные стили как ранее */
+        html, body { padding:0; margin:0; overflow:hidden; height:100%; width:100%; background:#000; }
+        #unity-container { position:absolute; width:100vw; height:100vh; display:flex; justify-content:center; align-items:center; background:#000; }
+        #unity-canvas { background:#231F20; object-fit:contain; }
+        canvas:focus { outline:none; }
+        #loading-cover { position:absolute; top:0; left:0; width:100%; height:100%; background:#000; z-index:10; display:flex; justify-content:center; align-items:center; }
+        #unity-loading-bar { text-align:center; }
+        .spinner { color:#fff; font-size:24px; }
     </style>
 </head>
-<body class="dark">
+<body>
+    <div id="unity-container"><canvas id="unity-canvas" tabindex="-1"></canvas></div>
+    <div id="loading-cover"><div id="unity-loading-bar"><div class="spinner">Загрузка...</div></div></div>
 
-    <div id="unity-container" class="unity-desktop">
-        <canvas id="unity-canvas" tabindex="-1"></canvas>
-    </div>
-
-    <div id="loading-cover">
-        <div id="unity-loading-bar">
-            <div id="unity-progress-bar-empty" style="display: none;">
-                <div id="unity-progress-bar-full"></div>
-            </div>
-            <div class="spinner"></div>
-        </div>
-    </div>
-
-    <!-- ===== ПОДКЛЮЧЕНИЕ SOCKET.IO И КЛИЕНТСКОГО JS ===== -->
-    <!-- Если сервер на том же домене – достаточно /socket.io/socket.io.js -->
-    <!-- Для Яндекс.Игр сервер будет на другом домене – тогда нужно указать полный путь -->
-    <script src="YOUR_SERVER_URL/socket.io/socket.io.js"></script>
-    <script>
-        // Переопределяем адрес сокета, если нужно (замените YOUR_SERVER_URL)
-        var socket = io('YOUR_SERVER_URL');
-    </script>
+    <!-- Подключаем socket.io (с сервера) и client.js -->
+    <script src="/socket.io/socket.io.js"></script>
     <script src="client.js"></script>
 
-    <!-- ===== СКРИПТ ЗАГРУЗКИ UNITY И ИНТЕГРАЦИИ С ЯНДЕКС SDK ===== -->
     <script>
-        // Конфигурация билда
+        // Конфигурация билда (относительные пути)
         const buildUrl = "Build";
-        const loaderUrl = buildUrl + "/public.loader.js"; // или "/10.loader.js" – смотрите ваш билд
+        const loaderUrl = buildUrl + "/public.loader.js";
         const config = {
             dataUrl: buildUrl + "/public.data",
             frameworkUrl: buildUrl + "/public.framework.js",
@@ -112,7 +39,7 @@
             productVersion: "0.1.0"
         };
 
-        // DOM элементы
+        // DOM и масштабирование
         const container = document.querySelector("#unity-container");
         const canvas = document.querySelector("#unity-canvas");
         const loadingCover = document.querySelector("#loading-cover");
@@ -120,104 +47,30 @@
         const progressBarFull = document.querySelector("#unity-progress-bar-full");
         const spinner = document.querySelector('.spinner');
 
-        // ===== ФУНКЦИИ МАСШТАБИРОВАНИЯ 16:9 (из index2) =====
         function maintain16by9Aspect() {
-            const targetRatio = 16 / 9;
+            const targetRatio = 16/9;
             const containerWidth = container.clientWidth;
             const containerHeight = container.clientHeight;
-
-            let width = containerWidth;
-            let height = containerHeight;
-
-            const containerRatio = containerWidth / containerHeight;
-
-            if (containerRatio > targetRatio) {
+            let width, height;
+            if (containerWidth/containerHeight > targetRatio) {
                 height = containerHeight;
                 width = containerHeight * targetRatio;
             } else {
                 width = containerWidth;
                 height = containerWidth / targetRatio;
             }
-
-            canvas.style.width = `${width}px`;
-            canvas.style.height = `${height}px`;
+            canvas.style.width = width + 'px';
+            canvas.style.height = height + 'px';
             canvas.style.position = 'absolute';
-            canvas.style.left = `${(containerWidth - width) / 2}px`;
-            canvas.style.top = `${(containerHeight - height) / 2}px`;
+            canvas.style.left = (containerWidth - width)/2 + 'px';
+            canvas.style.top = (containerHeight - height)/2 + 'px';
         }
 
-        function handleResize() {
-            maintain16by9Aspect();
-            if (ygGameInstance) {
-                ygGameInstance.SendMessage('YG2Instance', 'OnResize', `${canvas.width},${canvas.height}`);
-            }
-        }
+        window.addEventListener('resize', maintain16by9Aspect);
+        window.addEventListener('orientationchange', maintain16by9Aspect);
 
-        window.addEventListener('resize', handleResize);
-        window.addEventListener('orientationchange', handleResize);
-
-        // ===== ПЕРЕМЕННЫЕ ДЛЯ SDK =====
         let ygGameInstance = null;
-        let ysdk = null;
-        let player = null;
-        let initYSDK = false;
-        let initGame = false;
-        let playerName = "Guest"; // запасное имя
 
-        // ===== ФУНКЦИЯ ДЛЯ ОТПРАВКИ ИМЕНИ В UNITY =====
-        function SendPlayerNameToUnity(name) {
-            if (ygGameInstance) {
-                // Отправляем имя в NetworkManager (метод OnYandexSDKReady или SetPlayerName)
-                // Мы сделаем отдельный метод в NetworkManager, например, SetPlayerName
-                ygGameInstance.SendMessage('NetworkManager', 'SetPlayerName', name);
-                // Также можно сразу вызвать вход, если всё готово
-                ygGameInstance.SendMessage('NetworkManager', 'OnYandexSDKReady');
-            } else {
-                // Если Unity ещё не загружена – сохраняем имя и отправим позже
-                console.log("Unity ещё не загружена, сохраняем имя: " + name);
-                window._pendingPlayerName = name;
-            }
-        }
-
-        // ===== ИНИЦИАЛИЗАЦИЯ ЯНДЕКС SDK =====
-        async function InitYandexSDK() {
-            try {
-                ysdk = await YaGames.init();
-                ysdk.on('game_api_pause', () => {
-                    if (ygGameInstance) ygGameInstance.SendMessage('YG2Instance', 'SetPauseGame', 'true');
-                });
-                ysdk.on('game_api_resume', () => {
-                    if (ygGameInstance) ygGameInstance.SendMessage('YG2Instance', 'SetPauseGame', 'false');
-                });
-
-                // Получаем игрока
-                player = await ysdk.getPlayer();
-                if (player && player.isAuthorized()) {
-                    playerName = player.getName() || "Guest";
-                    console.log("Яндекс авторизация: имя = " + playerName);
-                } else {
-                    console.log("Игрок не авторизован, используем Guest");
-                    playerName = "Guest";
-                }
-
-                // Отправляем имя в Unity (если уже загружена)
-                SendPlayerNameToUnity(playerName);
-
-                // Также можно загрузить облачные сохранения, если нужно
-                // ...
-
-                initYSDK = true;
-                if (ygGameInstance) ygGameInstance.SendMessage('YG2Instance', 'InitSDKComplete');
-
-            } catch (e) {
-                console.error('Ошибка инициализации Яндекс SDK:', e);
-                // Если SDK не доступен (не Яндекс.Игры), используем fallback
-                playerName = "Guest";
-                SendPlayerNameToUnity(playerName);
-            }
-        }
-
-        // ===== ЗАГРУЗКА UNITY =====
         function StartUnity() {
             maintain16by9Aspect();
             loadingCover.style.display = "";
@@ -227,61 +80,29 @@
             script.onload = () => {
                 createUnityInstance(canvas, config, (progress) => {
                     spinner.style.display = "none";
-                    progressBarEmpty.style.display = "";
-                    progressBarFull.style.width = `${100 * Math.max(progress, 0.05)}%`;
+                    if (progressBarEmpty) progressBarEmpty.style.display = "";
+                    if (progressBarFull) progressBarFull.style.width = 100 * Math.max(progress, 0.05) + "%";
                 }).then((unityInstance) => {
                     ygGameInstance = unityInstance;
                     loadingCover.style.display = "none";
-
-                    // Если имя уже было получено до загрузки – отправляем
-                    if (window._pendingPlayerName) {
-                        ygGameInstance.SendMessage('NetworkManager', 'SetPlayerName', window._pendingPlayerName);
-                        ygGameInstance.SendMessage('NetworkManager', 'OnYandexSDKReady');
-                        window._pendingPlayerName = null;
-                    }
-
-                    // Если SDK уже инициализирован, но имя не отправлено – отправляем
-                    if (initYSDK && playerName) {
-                        ygGameInstance.SendMessage('NetworkManager', 'SetPlayerName', playerName);
-                        ygGameInstance.SendMessage('NetworkManager', 'OnYandexSDKReady');
-                    }
-
-                    // Передаём размеры
+                    // Здесь можно отправить имя Guest в Unity (если нужно)
+                    // Например:
+                    // unityInstance.SendMessage('NetworkManager', 'SetPlayerName', 'Guest');
+                    // unityInstance.SendMessage('NetworkManager', 'OnYandexSDKReady');
                     setTimeout(() => {
                         maintain16by9Aspect();
-                        unityInstance.SendMessage('YG2Instance', 'OnWebGLResize', `${canvas.width},${canvas.height}`);
+                        unityInstance.SendMessage('YG2Instance', 'OnWebGLResize', canvas.width + ',' + canvas.height);
                     }, 100);
-
-                    // Фокусируем canvas
-                    canvas.focus({ preventScroll: true });
-                }).catch((message) => {
-                    console.error(message);
-                });
+                    canvas.focus();
+                }).catch(console.error);
             };
             document.body.appendChild(script);
         }
 
-        // ===== ЗАПУСК =====
-        window.onload = function () {
-            // Сначала инициализируем Яндекс SDK (если он доступен)
-            if (typeof YaGames !== 'undefined' && YaGames.init) {
-                InitYandexSDK();
-            } else {
-                // Если SDK отсутствует (локальный запуск) – используем Guest
-                console.log("Яндекс SDK не обнаружен, используем Guest");
-                playerName = "Guest";
-                SendPlayerNameToUnity(playerName);
-            }
-
-            // Загружаем Unity (параллельно)
+        window.onload = function() {
+            // Инициализация без Яндекса – сразу запускаем Unity
             StartUnity();
         };
-
-        // Дополнительная функция для получения имени из Unity (если понадобится)
-        window.GetYandexPlayerName = function () {
-            return playerName;
-        };
     </script>
-
 </body>
 </html>
