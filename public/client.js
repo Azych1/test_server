@@ -1,6 +1,6 @@
-var socket = io() || {};
+// client.js – исправленный с явным указанием адреса сервера
+var socket = io('https://test-server-5bnb.onrender.com');
 socket.isReady = false;
-var account;
 
 window.addEventListener('load', function() {
 
@@ -9,7 +9,7 @@ window.addEventListener('load', function() {
 		
 		var args = Array.prototype.slice.call(arguments, 1);
 		
-		f(window.unityInstance!=null)
+		if(window.unityInstance!=null)
 		{
 		  //fit formats the message to send to the Unity client game, take a look in NetworkManager.cs in Unity
 		  window.unityInstance.SendMessage("NetworkManager", method, args.join(':'));
@@ -353,4 +353,3 @@ window.onload = (e) => {
 
 	return checkTransactionLoop();
   }
-
