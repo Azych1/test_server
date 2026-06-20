@@ -7,8 +7,8 @@
     <link rel="shortcut icon" href="TemplateData/favicon.ico">
     <link rel="stylesheet" href="TemplateData/style.css">
 
-    <!-- Яндекс SDK (для Яндекс.Игр) -->
-    <script src="/sdk.js"></script>
+    <!-- Яндекс SDK (для Яндекс.Игр) – если недоступен, будет ошибка, но мы её перехватим -->
+    <script src="/sdk.js" onerror="console.warn('Яндекс SDK не загружен (возможно, локальный запуск)')"></script>
 
     <style>
         /* Сброс и адаптация */
@@ -63,10 +63,9 @@
         }
 
         .spinner {
-            /* Ваш спиннер, если нужен */
+            /* Ваш спиннер – можно заменить на свой */
         }
 
-        /* Для мобильных – скрываем полноэкранную кнопку и т.д. */
         canvas:focus {
             outline: none;
         }
@@ -83,25 +82,21 @@
             <div id="unity-progress-bar-empty" style="display: none;">
                 <div id="unity-progress-bar-full"></div>
             </div>
-            <div class="spinner"></div>
+            <div class="spinner">Загрузка...</div>
         </div>
     </div>
 
-    <!-- ===== ПОДКЛЮЧЕНИЕ SOCKET.IO И КЛИЕНТСКОГО JS ===== -->
-    <!-- Если сервер на том же домене – достаточно /socket.io/socket.io.js -->
-    <!-- Для Яндекс.Игр сервер будет на другом домене – тогда нужно указать полный путь -->
-    <script src="YOUR_SERVER_URL/socket.io/socket.io.js"></script>
-    <script>
-        // Переопределяем адрес сокета, если нужно (замените YOUR_SERVER_URL)
-        var socket = io('YOUR_SERVER_URL');
-    </script>
+    <!-- ===== ПОДКЛЮЧЕНИЕ SOCKET.IO (сервер раздаёт сам) ===== -->
+    <script src="/socket.io/socket.io.js"></script>
+
+    <!-- ===== КЛИЕНТСКИЙ JS (ваш файл) ===== -->
     <script src="client.js"></script>
 
-    <!-- ===== СКРИПТ ЗАГРУЗКИ UNITY И ИНТЕГРАЦИИ С ЯНДЕКС SDK ===== -->
+    <!-- ===== СКРИПТ ЗАГРУЗКИ UNITY И ИНТЕГРАЦИИ С ЯНДЕКС ===== -->
     <script>
-        // Конфигурация билда
+        // Конфигурация билда – проверьте имена файлов в папке Build
         const buildUrl = "Build";
-        const loaderUrl = buildUrl + "/public.loader.js"; // или "/10.loader.js" – смотрите ваш билд
+        const loaderUrl = buildUrl + "/public.loader.js"; // или "/10.loader.js" – подставьте своё
         const config = {
             dataUrl: buildUrl + "/public.data",
             frameworkUrl: buildUrl + "/public.framework.js",
@@ -120,7 +115,7 @@
         const progressBarFull = document.querySelector("#unity-progress-bar-full");
         const spinner = document.querySelector('.spinner');
 
-        // ===== ФУНКЦИИ МАСШТАБИРОВАНИЯ 16:9 (из index2) =====
+        // ===== МАСШТАБИРОВАНИЕ 16:9 =====
         function maintain16by9Aspect() {
             const targetRatio = 16 / 9;
             const containerWidth = container.clientWidth;
@@ -156,32 +151,36 @@
         window.addEventListener('resize', handleResize);
         window.addEventListener('orientationchange', handleResize);
 
-        // ===== ПЕРЕМЕННЫЕ ДЛЯ SDK =====
+        // ===== ПЕРЕМЕННЫЕ =====
         let ygGameInstance = null;
         let ysdk = null;
         let player = null;
         let initYSDK = false;
-        let initGame = false;
-        let playerName = "Guest"; // запасное имя
+        let playerName = "Guest"; // fallback
 
-        // ===== ФУНКЦИЯ ДЛЯ ОТПРАВКИ ИМЕНИ В UNITY =====
+        // ===== ОТПРАВКА ИМЕНИ В UNITY =====
         function SendPlayerNameToUnity(name) {
             if (ygGameInstance) {
-                // Отправляем имя в NetworkManager (метод OnYandexSDKReady или SetPlayerName)
-                // Мы сделаем отдельный метод в NetworkManager, например, SetPlayerName
                 ygGameInstance.SendMessage('NetworkManager', 'SetPlayerName', name);
-                // Также можно сразу вызвать вход, если всё готово
                 ygGameInstance.SendMessage('NetworkManager', 'OnYandexSDKReady');
+                console.log("Имя отправлено в Unity: " + name);
             } else {
-                // Если Unity ещё не загружена – сохраняем имя и отправим позже
-                console.log("Unity ещё не загружена, сохраняем имя: " + name);
                 window._pendingPlayerName = name;
+                console.log("Unity не загружена, имя сохранено: " + name);
             }
         }
 
         // ===== ИНИЦИАЛИЗАЦИЯ ЯНДЕКС SDK =====
         async function InitYandexSDK() {
             try {
+                // Проверяем, доступен ли YaGames
+                if (typeof YaGames === 'undefined' || !YaGames.init) {
+                    console.warn("Яндекс SDK не обнаружен – используем Guest");
+                    playerName = "Guest";
+                    SendPlayerNameToUnity(playerName);
+                    return;
+                }
+
                 ysdk = await YaGames.init();
                 ysdk.on('game_api_pause', () => {
                     if (ygGameInstance) ygGameInstance.SendMessage('YG2Instance', 'SetPauseGame', 'true');
@@ -200,18 +199,12 @@
                     playerName = "Guest";
                 }
 
-                // Отправляем имя в Unity (если уже загружена)
                 SendPlayerNameToUnity(playerName);
-
-                // Также можно загрузить облачные сохранения, если нужно
-                // ...
-
                 initYSDK = true;
                 if (ygGameInstance) ygGameInstance.SendMessage('YG2Instance', 'InitSDKComplete');
 
             } catch (e) {
                 console.error('Ошибка инициализации Яндекс SDK:', e);
-                // Если SDK не доступен (не Яндекс.Игры), используем fallback
                 playerName = "Guest";
                 SendPlayerNameToUnity(playerName);
             }
@@ -238,21 +231,16 @@
                         ygGameInstance.SendMessage('NetworkManager', 'SetPlayerName', window._pendingPlayerName);
                         ygGameInstance.SendMessage('NetworkManager', 'OnYandexSDKReady');
                         window._pendingPlayerName = null;
-                    }
-
-                    // Если SDK уже инициализирован, но имя не отправлено – отправляем
-                    if (initYSDK && playerName) {
+                    } else if (initYSDK && playerName) {
                         ygGameInstance.SendMessage('NetworkManager', 'SetPlayerName', playerName);
                         ygGameInstance.SendMessage('NetworkManager', 'OnYandexSDKReady');
                     }
 
-                    // Передаём размеры
                     setTimeout(() => {
                         maintain16by9Aspect();
                         unityInstance.SendMessage('YG2Instance', 'OnWebGLResize', `${canvas.width},${canvas.height}`);
                     }, 100);
 
-                    // Фокусируем canvas
                     canvas.focus({ preventScroll: true });
                 }).catch((message) => {
                     console.error(message);
@@ -263,21 +251,13 @@
 
         // ===== ЗАПУСК =====
         window.onload = function () {
-            // Сначала инициализируем Яндекс SDK (если он доступен)
-            if (typeof YaGames !== 'undefined' && YaGames.init) {
-                InitYandexSDK();
-            } else {
-                // Если SDK отсутствует (локальный запуск) – используем Guest
-                console.log("Яндекс SDK не обнаружен, используем Guest");
-                playerName = "Guest";
-                SendPlayerNameToUnity(playerName);
-            }
-
-            // Загружаем Unity (параллельно)
+            // Сначала инициализируем Яндекс SDK (если доступен)
+            InitYandexSDK();
+            // Загружаем Unity параллельно
             StartUnity();
         };
 
-        // Дополнительная функция для получения имени из Unity (если понадобится)
+        // ===== ДОПОЛНИТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ ИМЕНИ ИЗ JS =====
         window.GetYandexPlayerName = function () {
             return playerName;
         };
