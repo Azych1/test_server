@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <link rel="shortcut icon" href="TemplateData/favicon.ico">
+    <link rel="stylesheet" href="TemplateData/style.css">
+    <style>
+        /* адаптивные стили как ранее */
+        html, body { padding:0; margin:0; overflow:hidden; height:100%; width:100%; background:#000; }
+        #unity-container { position:absolute; width:100vw; height:100vh; display:flex; justify-content:center; align-items:center; background:#000; }
+        #unity-canvas { background:#231F20; object-fit:contain; }
+        canvas:focus { outline:none; }
+        #loading-cover { position:absolute; top:0; left:0; width:100%; height:100%; background:#000; z-index:10; display:flex; justify-content:center; align-items:center; }
+        #unity-loading-bar { text-align:center; }
+        .spinner { color:#fff; font-size:24px; }
+    </style>
+</head>
+<body>
+    <div id="unity-container"><canvas id="unity-canvas" tabindex="-1"></canvas></div>
+    <div id="loading-cover"><div id="unity-loading-bar"><div class="spinner">Загрузка...</div></div></div>
+
+    <!-- Подключаем socket.io (с сервера) и client.js -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="client.js"></script>
+
+    <script>
+        // Конфигурация билда (относительные пути)
+        const buildUrl = "Build";
+        const loaderUrl = buildUrl + "/public.loader.js";
+        const config = {
+            dataUrl: buildUrl + "/public.data",
+            frameworkUrl: buildUrl + "/public.framework.js",
+            codeUrl: buildUrl + "/public.wasm",
+            streamingAssetsUrl: "StreamingAssets",
+            companyName: "YourCompany",
+            productName: "YourGame",
+            productVersion: "0.1.0"
+        };
+
+        // DOM и масштабирование
+        const container = document.querySelector("#unity-container");
+        const canvas = document.querySelector("#unity-canvas");
+        const loadingCover = document.querySelector("#loading-cover");
+        const progressBarEmpty = document.querySelector("#unity-progress-bar-empty");
+        const progressBarFull = document.querySelector("#unity-progress-bar-full");
+        const spinner = document.querySelector('.spinner');
+
+        function maintain16by9Aspect() {
+            const targetRatio = 16/9;
+            const containerWidth = container.clientWidth;
+            const containerHeight = container.clientHeight;
+            let width, height;
+            if (containerWidth/containerHeight > targetRatio) {
+                height = containerHeight;
+                width = containerHeight * targetRatio;
+            } else {
+                width = containerWidth;
+                height = containerWidth / targetRatio;
+            }
+            canvas.style.width = width + 'px';
+            canvas.style.height = height + 'px';
+            canvas.style.position = 'absolute';
+            canvas.style.left = (containerWidth - width)/2 + 'px';
+            canvas.style.top = (containerHeight - height)/2 + 'px';
+        }
+
+        window.addEventListener('resize', maintain16by9Aspect);
+        window.addEventListener('orientationchange', maintain16by9Aspect);
+
+        let ygGameInstance = null;
+
+        function StartUnity() {
+            maintain16by9Aspect();
+            loadingCover.style.display = "";
+
+            const script = document.createElement("script");
+            script.src = loaderUrl;
+            script.onload = () => {
+                createUnityInstance(canvas, config, (progress) => {
+                    spinner.style.display = "none";
+                    if (progressBarEmpty) progressBarEmpty.style.display = "";
+                    if (progressBarFull) progressBarFull.style.width = 100 * Math.max(progress, 0.05) + "%";
+                }).then((unityInstance) => {
+                    ygGameInstance = unityInstance;
+                    loadingCover.style.display = "none";
+                    // Здесь можно отправить имя Guest в Unity (если нужно)
+                    // Например:
+                    // unityInstance.SendMessage('NetworkManager', 'SetPlayerName', 'Guest');
+                    // unityInstance.SendMessage('NetworkManager', 'OnYandexSDKReady');
+                    setTimeout(() => {
+                        maintain16by9Aspect();
+                        unityInstance.SendMessage('YG2Instance', 'OnWebGLResize', canvas.width + ',' + canvas.height);
+                    }, 100);
+                    canvas.focus();
+                }).catch(console.error);
+            };
+            document.body.appendChild(script);
+        }
+
+        window.onload = function() {
+            // Инициализация без Яндекса – сразу запускаем Unity
+            StartUnity();
+        };
+    </script>
+</body>
+</html>

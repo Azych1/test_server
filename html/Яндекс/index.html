@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <link rel="shortcut icon" href="TemplateData/favicon.ico">
+    <link rel="stylesheet" href="TemplateData/style.css">
+
+    <!-- Яндекс SDK (подгружается платформой) -->
+    <script src="/sdk.js"></script>
+
+    <style>
+        /* ... стили такие же, как ранее (без внешних ресурсов) */
+        html, body { padding:0; margin:0; overflow:hidden; height:100%; width:100%; background:#000; }
+        #unity-container { position:absolute; width:100vw; height:100vh; display:flex; justify-content:center; align-items:center; background:#000; }
+        #unity-canvas { background:#231F20; object-fit:contain; }
+        .unity-mobile #unity-canvas { width:100% !important; height:100% !important; }
+        #loading-cover { position:absolute; top:0; left:0; width:100%; height:100%; background:#000; z-index:10; display:flex; justify-content:center; align-items:center; }
+        #unity-loading-bar { text-align:center; }
+        .spinner { color:#fff; font-size:24px; }
+        canvas:focus { outline:none; }
+    </style>
+</head>
+<body class="dark">
+
+    <div id="unity-container" class="unity-desktop">
+        <canvas id="unity-canvas" tabindex="-1"></canvas>
+    </div>
+
+    <div id="loading-cover">
+        <div id="unity-loading-bar">
+            <div id="unity-progress-bar-empty" style="display:none;">
+                <div id="unity-progress-bar-full"></div>
+            </div>
+            <div class="spinner">Загрузка...</div>
+        </div>
+    </div>
+
+    <!-- Подключаем сокет и клиентский JS (они лежат рядом) -->
+    <script src="socket.io/socket.io.js"></script>
+    <script src="client.js"></script>
+
+    <script>
+        // Пути к билду (относительные)
+        const buildUrl = "Build";
+        const loaderUrl = buildUrl + "/public.loader.js";
+        const config = {
+            dataUrl: buildUrl + "/public.data",
+            frameworkUrl: buildUrl + "/public.framework.js",
+            codeUrl: buildUrl + "/public.wasm",
+            streamingAssetsUrl: "StreamingAssets",
+            companyName: "YourCompany",
+            productName: "YourGame",
+            productVersion: "0.1.0"
+        };
+
+        // DOM элементы
+        const container = document.querySelector("#unity-container");
+        const canvas = document.querySelector("#unity-canvas");
+        const loadingCover = document.querySelector("#loading-cover");
+        const progressBarEmpty = document.querySelector("#unity-progress-bar-empty");
+        const progressBarFull = document.querySelector("#unity-progress-bar-full");
+        const spinner = document.querySelector('.spinner');
+
+        // Масштабирование 16:9
+        function maintain16by9Aspect() {
+            const targetRatio = 16 / 9;
+            const containerWidth = container.clientWidth;
+            const containerHeight = container.clientHeight;
+            let width = containerWidth;
+            let height = containerHeight;
+            const containerRatio = containerWidth / containerHeight;
+            if (containerRatio > targetRatio) {
+                height = containerHeight;
+                width = containerHeight * targetRatio;
+            } else {
+                width = containerWidth;
+                height = containerWidth / targetRatio;
+            }
+            canvas.style.width = width + 'px';
+            canvas.style.height = height + 'px';
+            canvas.style.position = 'absolute';
+            canvas.style.left = (containerWidth - width) / 2 + 'px';
+            canvas.style.top = (containerHeight - height) / 2 + 'px';
+        }
+
+        function handleResize() {
+            maintain16by9Aspect();
+            if (ygGameInstance) {
+                ygGameInstance.SendMessage('YG2Instance', 'OnResize', canvas.width + ',' + canvas.height);
+            }
+        }
+
+        window.addEventListener('resize', handleResize);
+        window.addEventListener('orientationchange', handleResize);
+
+        let ygGameInstance = null;
+        let ysdk = null;
+        let player = null;
+        let initYSDK = false;
+        let playerName = "Guest";
+
+        function SendPlayerNameToUnity(name) {
+            if (ygGameInstance) {
+                ygGameInstance.SendMessage('NetworkManager', 'SetPlayerName', name);
+                ygGameInstance.SendMessage('NetworkManager', 'OnYandexSDKReady');
+                console.log("Имя отправлено в Unity: " + name);
+            } else {
+                window._pendingPlayerName = name;
+                console.log("Unity не загружена, имя сохранено: " + name);
+            }
+        }
+
+        async function InitYandexSDK() {
+            try {
+                if (typeof YaGames === 'undefined' || !YaGames.init) {
+                    console.warn("Яндекс SDK не обнаружен – используем Guest");
+                    playerName = "Guest";
+                    SendPlayerNameToUnity(playerName);
+                    return;
+                }
+                ysdk = await YaGames.init();
+                ysdk.on('game_api_pause', () => {
+                    if (ygGameInstance) ygGameInstance.SendMessage('YG2Instance', 'SetPauseGame', 'true');
+                });
+                ysdk.on('game_api_resume', () => {
+                    if (ygGameInstance) ygGameInstance.SendMessage('YG2Instance', 'SetPauseGame', 'false');
+                });
+                player = await ysdk.getPlayer();
+                if (player && player.isAuthorized()) {
+                    playerName = player.getName() || "Guest";
+                    console.log("Яндекс авторизация: имя = " + playerName);
+                } else {
+                    console.log("Игрок не авторизован, используем Guest");
+                    playerName = "Guest";
+                }
+                SendPlayerNameToUnity(playerName);
+                initYSDK = true;
+                if (ygGameInstance) ygGameInstance.SendMessage('YG2Instance', 'InitSDKComplete');
+            } catch (e) {
+                console.error('Ошибка инициализации Яндекс SDK:', e);
+                playerName = "Guest";
+                SendPlayerNameToUnity(playerName);
+            }
+        }
+
+        function StartUnity() {
+            maintain16by9Aspect();
+            loadingCover.style.display = "";
+
+            const script = document.createElement("script");
+            script.src = loaderUrl;
+            script.onload = () => {
+                createUnityInstance(canvas, config, (progress) => {
+                    spinner.style.display = "none";
+                    progressBarEmpty.style.display = "";
+                    progressBarFull.style.width = 100 * Math.max(progress, 0.05) + '%';
+                }).then((unityInstance) => {
+                    ygGameInstance = unityInstance;
+                    loadingCover.style.display = "none";
+
+                    if (window._pendingPlayerName) {
+                        ygGameInstance.SendMessage('NetworkManager', 'SetPlayerName', window._pendingPlayerName);
+                        ygGameInstance.SendMessage('NetworkManager', 'OnYandexSDKReady');
+                        window._pendingPlayerName = null;
+                    } else if (initYSDK && playerName) {
+                        ygGameInstance.SendMessage('NetworkManager', 'SetPlayerName', playerName);
+                        ygGameInstance.SendMessage('NetworkManager', 'OnYandexSDKReady');
+                    }
+
+                    setTimeout(() => {
+                        maintain16by9Aspect();
+                        unityInstance.SendMessage('YG2Instance', 'OnWebGLResize', canvas.width + ',' + canvas.height);
+                    }, 100);
+
+                    canvas.focus({ preventScroll: true });
+                }).catch((message) => {
+                    console.error(message);
+                });
+            };
+            document.body.appendChild(script);
+        }
+
+        window.onload = function () {
+            InitYandexSDK();
+            StartUnity();
+        };
+
+        window.GetYandexPlayerName = function () {
+            return playerName;
+        };
+    </script>
+
+</body>
+</html>
